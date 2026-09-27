@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { api } from './api'
 import { claimFieldGroups } from './claimFields'
@@ -123,6 +123,7 @@ function StatCard({
 
 function AdminDashboard({
   onNavigate,
+  onOpenClaim,
   refreshKey,
 }) {
   const [mlClaims, setMlClaims] = useState([])
@@ -264,9 +265,11 @@ function AdminDashboard({
                   {customerClaims
                     .slice(0, 5)
                     .map((claim) => (
-                      <div
-                        className="compact-row"
+                      <button
+                        type="button"
+                        className="compact-row compact-clickable"
                         key={claim.id}
+                        onClick={() => onOpenClaim(claim.claim_id)}
                       >
                         <div>
                           <strong>
@@ -282,7 +285,7 @@ function AdminDashboard({
                         <StatusBadge
                           value={claim.status}
                         />
-                      </div>
+                      </button>
                     ))}
                 </div>
               )}
@@ -331,6 +334,8 @@ function AdminCustomerClaims({
   refreshKey,
   onChanged,
   canReview,
+  selectedClaimId,
+  onSelectClaim,
 }) {
   const [claims, setClaims] = useState([])
   const [selected, setSelected] = useState(null)
@@ -341,6 +346,8 @@ function AdminCustomerClaims({
   const [updating, setUpdating] = useState(false)
   const [reviewerComment, setReviewerComment] = useState('')
   const [reviewError, setReviewError] = useState('')
+  const [reviewSuccess, setReviewSuccess] = useState('')
+  const detailRef = useRef(null)
 
   function loadClaims() {
     setLoading(true)
@@ -364,6 +371,30 @@ function AdminCustomerClaims({
   useEffect(() => {
     loadClaims()
   }, [refreshKey])
+
+  useEffect(() => {
+    if (!selectedClaimId || claims.length === 0) return
+
+    const match = claims.find(
+      (claim) => claim.claim_id === selectedClaimId
+    )
+
+    if (match) {
+      setSelected(match)
+      setReviewError('')
+      setReviewerComment('')
+      setReviewSuccess('')
+    }
+  }, [selectedClaimId, claims])
+
+  useEffect(() => {
+    if (!selected || !detailRef.current) return
+
+    detailRef.current.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }, [selected])
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -433,6 +464,7 @@ function AdminCustomerClaims({
       )
 
       setSelected(updated)
+      setReviewSuccess(`Claim ${updated.claim_id} was marked as ${updated.status}.`)
 
       setClaims((current) =>
         current.map((claim) =>
@@ -445,6 +477,7 @@ function AdminCustomerClaims({
       onChanged()
     } catch (error) {
       setReviewError(error.message)
+      setReviewSuccess('')
     } finally {
       setUpdating(false)
     }
@@ -530,8 +563,10 @@ function AdminCustomerClaims({
                     onClick={() =>
                       {
                         setSelected(claim)
+                        onSelectClaim?.(claim.claim_id)
                         setReviewerComment('')
                         setReviewError('')
+                        setReviewSuccess('')
                       }
                     }
                   >
@@ -706,56 +741,64 @@ function AdminCustomerClaims({
 
           <ClaimTimeline claimId={selected.claim_id} status={selected.status} />
 
-          {canReview && <div className="decision-actions">
-            <label className="review-note">
-              Reviewer note
-              <textarea
-                rows="3"
-                value={reviewerComment}
-                onChange={(event) => setReviewerComment(event.target.value)}
-                placeholder="Record the reason for this action"
-              />
-            </label>
+          {canReview && (
+            <div className="decision-actions-panel">
+              <div className="decision-actions-header">
+                <div>
+                  <p className="eyebrow">Decision</p>
+                  <h3>Update status</h3>
+                </div>
+                <span className="mini-hint">Next action</span>
+              </div>
 
-            <div>
-              <button
-                className="button warning"
-                disabled={updating}
-                onClick={() =>
-                  updateStatus('Under Review')
-                }
-              >
-                Under Review
-              </button>
+              <div className="decision-actions-body">
+                <label className="review-note">
+                  Note
+                  <textarea
+                    rows="2"
+                    value={reviewerComment}
+                    onChange={(event) => setReviewerComment(event.target.value)}
+                    placeholder="Add reason or follow-up..."
+                  />
+                </label>
 
-              <button
-                className="button success"
-                disabled={updating}
-                onClick={() =>
-                  updateStatus('Approved')
-                }
-              >
-                Approve
-              </button>
+                <div className="decision-button-group">
+                  <button
+                    className="button warning"
+                    disabled={updating}
+                    onClick={() => updateStatus('Under Review')}
+                  >
+                    Review
+                  </button>
 
-              <button
-                className="button danger"
-                disabled={updating}
-                onClick={() =>
-                  updateStatus('Rejected')
-                }
-              >
-                Reject
-              </button>
-              <button
-                className="button warning"
-                disabled={updating || !reviewerComment.trim()}
-                onClick={() => updateStatus('Additional Information Required')}
-              >
-                Request More Information
-              </button>
+                  <button
+                    className="button success"
+                    disabled={updating}
+                    onClick={() => updateStatus('Approved')}
+                  >
+                    Approve
+                  </button>
+
+                  <button
+                    className="button danger"
+                    disabled={updating}
+                    onClick={() => updateStatus('Rejected')}
+                  >
+                    Reject
+                  </button>
+
+                  <button
+                    className="button secondary"
+                    disabled={updating || !reviewerComment.trim()}
+                    onClick={() => updateStatus('Additional Information Required')}
+                  >
+                    More info
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>}
+          )}
+          {reviewSuccess && <div className="alert success">{reviewSuccess}</div>}
           {reviewError && <div className="alert error">{reviewError}</div>}
         </section>
       )}
@@ -1425,7 +1468,7 @@ function AdminAuditLog({ refreshKey }) {
 }
 
 
-function WorkspaceNotifications({ refreshKey }) {
+function WorkspaceNotifications({ refreshKey, onOpenClaim, onMarkedRead }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1443,6 +1486,7 @@ function WorkspaceNotifications({ refreshKey }) {
       setItems((current) => current.map((entry) =>
         entry.id === item.id ? { ...entry, is_read: true } : entry
       ))
+      onMarkedRead?.()
     } catch (requestError) {
       setError(requestError.message)
     }
@@ -1454,7 +1498,27 @@ function WorkspaceNotifications({ refreshKey }) {
       <section className="panel">
         {error && <div className="alert error">{error}</div>}
         {loading ? <LoadingState /> : items.length === 0 ? <EmptyState title="No notifications" description="New assigned updates will appear here." /> : (
-          <div className="compact-list">{items.map((item) => <div className="compact-row" key={item.id}><div><strong>{item.title}</strong><span>{item.message} · {formatDate(item.created_at)}</span></div>{!item.is_read && <button className="text-button" onClick={() => markRead(item)}>Mark read</button>}</div>)}</div>
+          <div className="compact-list">
+            {items.map((item) => (
+              <button
+                type="button"
+                className={`compact-row compact-clickable ${item.is_read ? 'is-read' : 'is-unread'}`}
+                key={item.id}
+                onClick={() => {
+                  if (item.resource_type === 'CLAIM') {
+                    onOpenClaim?.(item.resource_id)
+                  }
+                  if (!item.is_read) markRead(item)
+                }}
+              >
+                <div>
+                  <strong>{item.title}</strong>
+                  <span>{item.message} · {formatDate(item.created_at)}</span>
+                </div>
+                {!item.is_read ? <span className="notification-pill">Unread</span> : <span className="notification-pill muted">Read</span>}
+              </button>
+            ))}
+          </div>
         )}
       </section>
     </>
@@ -3252,6 +3316,10 @@ function CustomerClaims({
   const [claims, setClaims] = useState([])
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(Boolean(email))
+  const [decisionOpen, setDecisionOpen] = useState(true)
+  const [completionModal, setCompletionModal] = useState(null)
+  const [completedClaims, setCompletedClaims] = useState({})
+  const detailRef = useRef(null)
 
   useEffect(() => {
     if (!email) {
@@ -3271,6 +3339,31 @@ function CustomerClaims({
       .then(setClaims)
       .finally(() => setLoading(false))
   }, [email, refreshKey])
+
+  useEffect(() => {
+    if (!selected) return
+
+    setDecisionOpen(true)
+
+    const target =
+      document.getElementById('claim-information') ||
+      detailRef.current
+
+    if (target) {
+      target.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }
+  }, [selected])
+
+  function handleCompleteClaim(claimId) {
+    setCompletedClaims((current) => ({
+      ...current,
+      [claimId]: true,
+    }))
+    setCompletionModal({ claimId })
+  }
 
   return (
     <>
@@ -3322,29 +3415,13 @@ function CustomerClaims({
                         ? 'selected-row'
                         : ''
                     }
-                    onClick={() =>
-                      setSelected(claim)
-                    }
+                    onClick={() => setSelected(claim)}
                   >
-                    <td className="mono">
-                      {claim.claim_id}
-                    </td>
+                    <td className="mono">{claim.claim_id}</td>
                     <td>{claim.product_name}</td>
-                    <td>
-                      {formatNumber(
-                        claim.claim_amount
-                      )}
-                    </td>
-                    <td>
-                      <StatusBadge
-                        value={claim.status}
-                      />
-                    </td>
-                    <td>
-                      {formatDate(
-                        claim.created_at
-                      )}
-                    </td>
+                    <td>{formatNumber(claim.claim_amount)}</td>
+                    <td><StatusBadge value={claim.status} /></td>
+                    <td>{formatDate(claim.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -3354,12 +3431,10 @@ function CustomerClaims({
       </section>
 
       {selected && (
-        <section className="panel detail-panel">
+        <section id="claim-information" className="panel detail-panel" ref={detailRef}>
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">
-                Claim Status
-              </p>
+              <p className="eyebrow">Claim Status</p>
               <h2>{selected.claim_id}</h2>
             </div>
 
@@ -3369,99 +3444,112 @@ function CustomerClaims({
           <ClaimTimeline claimId={selected.claim_id} status={selected.status} />
 
           {selected.decision && (
-            <div className="claim-analysis">
-              <p className="eyebrow">AI + Rule Analysis</p>
-              <div className="detail-grid">
-                <div>
-                  <span>Python prediction</span>
-                  <strong>{selected.decision.ml_prediction}</strong>
-                </div>
-                <div>
-                  <span>Python confidence</span>
-                  <strong>{(selected.decision.ml_confidence * 100).toFixed(2)}%</strong>
-                </div>
-                <div>
-                  <span>Final decision</span>
-                  <strong>{selected.decision.final_decision}</strong>
-                </div>
-                <div>
-                  <span>Python model version</span>
-                  <strong>{selected.decision.python_model_version || '—'}</strong>
-                </div>
-                <div>
-                  <span>GTM model version</span>
-                  <strong>{selected.decision.gtm_model_version || 'Not run'}</strong>
-                </div>
-                <div>
-                  <span>Google inference</span>
-                  <strong>
-                    {selected.decision.google_inference_status === 'not_connected'
-                      ? 'Not connected'
-                      : selected.decision.google_prediction || 'Not run'}
-                  </strong>
-                </div>
-                <div>
-                  <span>Analysis timestamp</span>
-                  <strong>{formatDate(selected.decision.analysis_timestamp)}</strong>
-                </div>
+            <div className="decision-card">
+              <div className="decision-card-header">
+                <p className="eyebrow">Decision</p>
+                <span className={`decision-pill ${String(selected.decision.final_decision || selected.status || '').toLowerCase().replace(/\s+/g, '-')}`}>
+                  {selected.decision.final_decision || selected.status || 'Decision'}
+                </span>
               </div>
-              {selected.decision.decision_reasons?.length > 0 && (
-                <ul className="decision-reason-list">
-                  {selected.decision.decision_reasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
-                </ul>
-              )}
-              <details className="analysis-inputs">
-                <summary>Rule inputs and derived warranty values</summary>
-                <div className="feature-grid">
-                  {Object.entries({
-                    ...selected.decision.derived_data,
-                    ...selected.decision.model_features,
-                  }).map(([name, value]) => (
-                    <div key={name}>
-                      <span>{name}</span>
-                      <strong>{String(value ?? '—')}</strong>
-                    </div>
-                  ))}
+
+              <div className="decision-card-main">
+                <div className="decision-card-title">
+                  {selected.decision.final_decision || 'Decision available'}
                 </div>
-              </details>
-              <p className="reviewer-summary">
-                Reviewer: {selected.decision.reviewer_decision || 'No override'}
-                {selected.decision.reviewer_comment && ` · ${selected.decision.reviewer_comment}`}
-              </p>
+                <p className="decision-summary-text">
+                  {selected.decision.decision_reasons?.[0] || 'Claim status has been recorded and is available for review.'}
+                </p>
+              </div>
+
+              <dl className="decision-meta">
+                <div>
+                  <dt>ML Prediction</dt>
+                  <dd>{selected.decision.ml_prediction || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Confidence</dt>
+                  <dd>{((selected.decision.ml_confidence || 0) * 100).toFixed(1)}%</dd>
+                </div>
+                <div>
+                  <dt>Rule Check</dt>
+                  <dd>{selected.decision.requires_admin_review ? 'Manual Review' : 'Passed'}</dd>
+                </div>
+              </dl>
+
+              {decisionOpen && (
+                <div className="decision-details">
+                  {selected.decision.decision_reasons?.length > 0 && (
+                    <div className="decision-reason-copy">
+                      <span>Reason</span>
+                      <ul>
+                        {selected.decision.decision_reasons.map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="decision-detail-grid">
+                    <div>
+                      <span>Python model</span>
+                      <strong>{selected.decision.model_name || '—'}</strong>
+                    </div>
+                    <div>
+                      <span>Rule data</span>
+                      <strong>{selected.decision.gtm_model_version || 'Not run'}</strong>
+                    </div>
+                    <div>
+                      <span>Analysis time</span>
+                      <strong>{formatDate(selected.decision.analysis_timestamp)}</strong>
+                    </div>
+                    <div>
+                      <span>Review</span>
+                      <strong>{selected.decision.reviewer_decision || 'No override'}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="decision-actions-row">
+                <button
+                  type="button"
+                  className="button secondary compact"
+                  onClick={() => setDecisionOpen((current) => !current)}
+                >
+                  {decisionOpen ? 'Hide' : 'Details'}
+                </button>
+
+                <button
+                  type="button"
+                  className="button primary compact"
+                  disabled={Boolean(completedClaims[selected.claim_id])}
+                  onClick={() => handleCompleteClaim(selected.claim_id)}
+                >
+                  {completedClaims[selected.claim_id] ? 'Completed ✓' : 'Complete'}
+                </button>
+              </div>
             </div>
           )}
 
           <div className="detail-grid">
             <div>
               <span>Product</span>
-              <strong>
-                {selected.product_name}
-              </strong>
+              <strong>{selected.product_name}</strong>
             </div>
 
             <div>
               <span>Serial Number</span>
-              <strong>
-                {selected.serial_number}
-              </strong>
+              <strong>{selected.serial_number}</strong>
             </div>
 
             <div>
               <span>Purchase Date</span>
-              <strong>
-                {selected.purchase_date}
-              </strong>
+              <strong>{selected.purchase_date}</strong>
             </div>
 
             <div>
               <span>Claim Amount</span>
-              <strong>
-                {formatNumber(
-                  selected.claim_amount
-                )}
-              </strong>
+              <strong>{formatNumber(selected.claim_amount)}</strong>
             </div>
           </div>
 
@@ -3470,6 +3558,20 @@ function CustomerClaims({
             <p>{selected.fault_description}</p>
           </div>
         </section>
+      )}
+
+      {completionModal && (
+        <div className="completion-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="completion-modal-title">
+          <div className="completion-modal">
+            <div className="completion-badge">✓</div>
+            <h3 id="completion-modal-title">Claim Completed</h3>
+            <p>Your claim has been successfully completed.</p>
+            <p className="completion-id">Claim ID: {completionModal.claimId}</p>
+            <button type="button" className="button primary compact" onClick={() => setCompletionModal(null)}>
+              Done
+            </button>
+          </div>
+        </div>
       )}
     </>
   )
@@ -3483,8 +3585,11 @@ function App({ onLogout, role, email }) {
   const [adminPage, setAdminPage] =
     useState('dashboard')
 
+  const [selectedClaimId, setSelectedClaimId] = useState(null)
   const [refreshKey, setRefreshKey] =
     useState(0)
+  const [notificationRefreshKey, setNotificationRefreshKey] = useState(0)
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
 
   useEffect(() => {
     document.body.classList.add('admin-light')
@@ -3499,8 +3604,27 @@ function App({ onLogout, role, email }) {
       )
   }, [])
 
+  useEffect(() => {
+    api('/api/notifications')
+      .then((items) => {
+        setUnreadNotifications(
+          items.filter((item) => !item.is_read).length
+        )
+      })
+      .catch(() => setUnreadNotifications(0))
+  }, [refreshKey, notificationRefreshKey])
+
   function refresh() {
     setRefreshKey((value) => value + 1)
+  }
+
+  function openClaim(claimId) {
+    setSelectedClaimId(claimId)
+    setAdminPage('customer-claims')
+  }
+
+  function refreshNotifications() {
+    setNotificationRefreshKey((value) => value + 1)
   }
 
   const allAdminNavigation = [
@@ -3540,7 +3664,13 @@ function App({ onLogout, role, email }) {
         </div>
 
         <nav className="nav-menu">
-          {adminNavigation.map(([key, label]) => (
+          {adminNavigation.map(([key, label]) => {
+            const isNotifications = key === 'notifications'
+            const displayLabel = isNotifications && unreadNotifications > 0
+              ? `${label} (${unreadNotifications})`
+              : label
+
+            return (
               <button
                 key={key}
                 className={`nav-item ${
@@ -3548,9 +3678,13 @@ function App({ onLogout, role, email }) {
                 }`}
                 onClick={() => setAdminPage(key)}
               >
-                {label}
+                <span className="nav-item-label">{label}</span>
+                {isNotifications && unreadNotifications > 0 && (
+                  <span className="nav-badge">{unreadNotifications}</span>
+                )}
               </button>
-          ))}
+            )
+          })}
         </nav>
 
         <div className="backend-status">
@@ -3571,6 +3705,7 @@ function App({ onLogout, role, email }) {
         {adminPage === 'dashboard' && (
           <AdminDashboard
             onNavigate={setAdminPage}
+            onOpenClaim={openClaim}
             refreshKey={refreshKey}
           />
         )}
@@ -3580,6 +3715,8 @@ function App({ onLogout, role, email }) {
             refreshKey={refreshKey}
             onChanged={refresh}
             canReview={role === 'ADMIN' || role === 'REVIEWER'}
+            selectedClaimId={selectedClaimId}
+            onSelectClaim={setSelectedClaimId}
           />
         )}
 
@@ -3592,7 +3729,11 @@ function App({ onLogout, role, email }) {
         )}
 
         {adminPage === 'notifications' && (
-          <WorkspaceNotifications refreshKey={refreshKey} />
+          <WorkspaceNotifications
+            refreshKey={refreshKey}
+            onOpenClaim={openClaim}
+            onMarkedRead={refreshNotifications}
+          />
         )}
 
         {adminPage === 'profile' && (
