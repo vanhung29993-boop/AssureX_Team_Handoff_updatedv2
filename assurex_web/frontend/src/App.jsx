@@ -16,7 +16,17 @@ const MODEL_METRICS = {
 
 function formatDate(value) {
   if (!value) return '—'
-  return new Date(value).toLocaleString()
+
+  const raw = String(value)
+  const date =
+    raw.includes('T') &&
+    !raw.endsWith('Z') &&
+    !/[+-]\d{2}:?\d{2}$/.test(raw)
+      ? new Date(`${raw}Z`)
+      : new Date(raw)
+
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleString()
 }
 
 

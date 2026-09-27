@@ -129,7 +129,18 @@ function CustomerNotifications() {
 
 
 function formatNotificationDate(value) {
-  return value ? new Date(value).toLocaleString() : ''
+  if (!value) return ''
+
+  const raw = String(value)
+  const date =
+    raw.includes('T') &&
+    !raw.endsWith('Z') &&
+    !/[+-]\d{2}:?\d{2}$/.test(raw)
+      ? new Date(`${raw}Z`)
+      : new Date(raw)
+
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString()
 }
 
 
